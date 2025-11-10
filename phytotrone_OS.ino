@@ -147,7 +147,6 @@ I2C Адреса для PCF8574 (ver. IIC)
 
 String log_path;                      // Путь файла для записи показаний | Системный
 #define sd_delay 25                   // Задержка для инициализации SD карты [мсек] | Системный
-#define strings_folder "/str/"        // Путь к файлам с неотсортированными строками | Системный
 #define headers_folder "/head/"       // Путь к файлам со строками заголовков записываемых параметров | Системный
 #define menu_folder "/menu/"          // Путь к файлам со строками экранов меню | Системный
 
@@ -627,7 +626,7 @@ namespace sdFunc {
       }
       if (path < 10)
       {
-        log_path += sdFunc::readLine(strings_folder, 1, 1);
+        log_path += "0";
       }
       log_path += path;
     }
