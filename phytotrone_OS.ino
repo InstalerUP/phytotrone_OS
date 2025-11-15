@@ -29,16 +29,16 @@
 #define pin_S3 8     // Пин S3 управления Мультиплексора
 
 // Мультиплесор - выхода
-//#define pin_T10 0    // Пин мультиплексора 0
-//#define pin_T11 1    // Пин мультиплексора 1
-//#define pin_T12 2    // Пин мультиплексора 2
-//#define pin_T13 3    // Пин мультиплексора 3
-//#define pin_T14 4    // Пин мультиплексора 4
-//#define pin_T20 5    // Пин мультиплексора 5
-//#define pin_T21 6    // Пин мультиплексора 6
-//#define pin_T22 7    // Пин мультиплексора 7
-//#define pin_T23 8    // Пин мультиплексора 8
-//#define pin_T24 9    // Пин мультиплексора 9
+//#define mux0 0     // Пин мультиплексора 0
+//#define mux1 1     // Пин мультиплексора 1
+//#define mux2 2     // Пин мультиплексора 2
+//#define mux3 3     // Пин мультиплексора 3
+//#define mux4 4     // Пин мультиплексора 4
+//#define mux5 5     // Пин мультиплексора 5
+//#define mux6 6     // Пин мультиплексора 6
+//#define mux7 7     // Пин мультиплексора 7
+//#define mux8 8     // Пин мультиплексора 8
+//#define mux9 9     // Пин мультиплексора 9
 //#define mux10 10   // Пин мультиплексора 10
 #define pin_SH1 11   // Пин мультиплексора для датчика влажности почвы #1
 #define pin_SH2 12   // Пин мультиплексора для датчика влажности почвы #2
@@ -1370,7 +1370,7 @@ namespace expFunc {
       time_exp_count = rtc.getUnix(rtc_region) - time_exp_start;
       expFunc::DayNight(time_exp_count);
       log_tick_count = log_tick_count + 1;
-      menu_update = true;                                 // Сигнал на обновления экрана
+      menu_update = true;                     // Сигнал на обновления экрана
     }
     if ((float)log_tick_count >= (float)log_period / (float)timer_tick_period)
     {
@@ -1396,7 +1396,14 @@ namespace expFunc {
 
         // Работа устройств воздействия
         Heater.workPWM(temp_soil_set, soil_temp_current_avr);
-        Fan.workPWM(temp_air_set, air_temp_current);
+        if (temp_air_set > air_out_temp_current)
+        {
+          Fan.workPWM(temp_air_set, air_temp_current);
+        }
+        else
+        {
+          Fan.workON(false);
+        }
         expFunc::light(1);                   // Работа освещения
         expFunc::irrigating();
         
@@ -1405,7 +1412,7 @@ namespace expFunc {
       else
       {
         experiment_inWork = false;            // Остановка эксперимента
-        menuFunc::switchTo(Menu_Exp_Done);        // Переключение экрана
+        menuFunc::switchTo(Menu_Exp_Done);    // Переключение экрана
       }
     }
     // Если эксперимент НЕ активен
@@ -1432,7 +1439,7 @@ namespace expFunc {
 
 void setup()
 {
-  //Serial.begin(9600);                       // Запуск монитора порта с частотой 9600 бад
+  //Serial.begin(9600);                     // Запуск монитора порта с частотой 9600 бад
 
   ///////////////////////////////
   //  Инициализация объектов   //
@@ -1459,25 +1466,7 @@ void setup()
   pinMode(pin_led_R, OUTPUT);
   pinMode(pin_led_G, OUTPUT);
   pinMode(pin_led_B, OUTPUT);
-  /*
-  // Сброс времени часов (синхронизация с ПК)
-  if (!pcf2.readButton(pin_SB4_Up) && !pcf2.readButton(pin_SB3_Left))
-  {
-    rtc.setTime(BUILD_SEC + rtc_second_shift, BUILD_MIN, BUILD_HOUR, BUILD_DAY, BUILD_MONTH, BUILD_YEAR);  // Установка времени с ПК при компиляции
-  }
-  */
-  ///////////////////////////////
-  //     Начальные сигналы     //
-  ///////////////////////////////
-  /*
-  pcf1.write(pin_RT1, false);
-  analogWrite(pin_led_W, 0);
-  analogWrite(pin_led_R, 0);
-  analogWrite(pin_led_G, 0);
-  analogWrite(pin_led_B, 0);
-  */
 
-  //Serial.println(sdFunc::readLine(strings_folder, 1, 2));
   menuFunc::switchTo(Menu_Start);
 }
 
