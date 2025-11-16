@@ -65,10 +65,10 @@
 // PCF1
 //#define P0 0       // Пин PCF1 P0 - управление H1 (Увлажнитель / Humider)
 #define pin_F1 1     // Пин PCF1 P1 - управление F1 (Вентилятор прямой / Fan direct)
-#define pin_P1 2     // Пин PCF1 P2 - управление P1 (Клапан 1 / Pump 1)
-#define pin_P2 3     // Пин PCF1 P3 - управление P2 (Клапан 2 / Pump 2)
-#define pin_P3 4     // Пин PCF1 P4 - управление P3 (Клапан 3 / Pump 3)
-#define pin_P4 5     // Пин PCF1 P5 - управление P4 (Клапан 4 / Pump 4)
+#define pin_P4 2     // Пин PCF1 P2 - управление P4 (Клапан 4 / Pump 4)
+#define pin_P3 3     // Пин PCF1 P3 - управление P3 (Клапан 3 / Pump 3)
+#define pin_P2 4     // Пин PCF1 P4 - управление P2 (Клапан 2 / Pump 2)
+#define pin_P1 5     // Пин PCF1 P5 - управление P1 (Клапан 1 / Pump 1)
 #define pin_RT1 6    // Пин PCF1 P6 - управление RT1 (Нагреватель / Heater)
 #define pin_F2 7     // Пин PCF1 P7 - управление F2 (Вентилятор обратный / Fan reverse)
 
