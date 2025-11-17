@@ -1,0 +1,4 @@
+T_air_set:  $      C
+T_soil_set: $      C
+DayNight:   $      %
+< Stop

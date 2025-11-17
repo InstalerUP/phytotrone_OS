@@ -2,9 +2,6 @@
 //                   БИБЛИОТЕКИ                    //
 /////////////////////////////////////////////////////
 
-//#include <Arduino.h>                // Библиотека "Arduino" (встроенная библиотека)
-//#include <Wire.h>                   // Библиотека "Wire" (встроенная библиотека)
-//#include <SPI.h>                    // Библиотека "SPI" (встроенная библиотека)
 #include <SD.h>                     // Библиотека урезанная SD-картридера "SD" (встроенная библиотека)
 #include <CD74HC4067.h>             // Библиотека мультиплексера "CD74HC4067" / waspinator (https://github.com/waspinator/CD74HC4067)
 #include <microDS3231.h>            // Библиотека часов "microDS3231" / GyverLibs (https://github.com/GyverLibs/microDS3231)
@@ -147,8 +144,13 @@ I2C Адреса для PCF8574 (ver. IIC)
 
 String log_path;                      // Путь файла для записи показаний | Системный
 #define sd_delay 25                   // Задержка для инициализации SD карты [мсек] | Системный
-#define headers_folder "/head/"       // Путь к файлам со строками заголовков записываемых параметров | Системный
-#define menu_folder "/menu/"          // Путь к файлам со строками экранов меню | Системный
+#define sys_folder "sys/"             // Путь к файлам с системными строками | Системный
+#define file_header_1 255             // Имя файла с зоголовками №1 | Системный
+#define file_header_2 254             // Имя файла с зоголовками №2 | Системный
+#define sys_type 0                    // Номерной тип файла sys | Системный
+#define cfg_type 1                    // Номерной тип файла cfg | Системный
+
+
 
 //////////////////
 // Эксперимент  //
@@ -175,11 +177,14 @@ uint32_t timer_humMeas;               // Таймер для отсчёта пе
 bool water_lvl = false;               // Переменная наличия воды в баке | Системный
 uint8_t pot_num = 0;                  // Текущий активный горшок | Системный
 bool humMeas_switch = true;           // Готовность измерять влажность почвы | Системный
-uint16_t hum_curr = 0;                // Измеренная влажность почвы | Системный
+uint16_t hum_curr = 0;                // Текущая измеренная влажность почвы | Системный
+uint16_t hum_set_curr = 0;            // Текущая заданная влажность почвы | Системный
+#define hum_set_delta 10              // Заданная зона нечувствительности влажность почвы | Системный
 uint16_t hum_set_1 = 0;               // Эталонная влажность для горшка №1 | Системный
 uint16_t hum_set_2 = 0;               // Эталонная влажность для горшка №2 | Системный
 uint16_t hum_set_3 = 0;               // Эталонная влажность для горшка №3 | Системный
 uint16_t hum_set_4 = 0;               // Эталонная влажность для горшка №4 | Системный
+uint16_t hum_set_all = 0;             // Заданная для всех горшков эталлоная влажность | Системный
 uint16_t hum_pot_1 = 0;               // Измеренная влажность в горшке №1 | Системный
 uint16_t hum_pot_2 = 0;               // Измеренная влажность в горшке №2 | Системный
 uint16_t hum_pot_3 = 0;               // Измеренная влажность в горшке №3 | Системный
@@ -213,9 +218,11 @@ bool experiment_inWork = false;       // Переменная переключе
 uint8_t cfgID = 0;                    // Номер cfg файла | Системный
 
 // Режим цикла дня и ночи
-uint8_t day_long = 18;                // Длительность фазы дня [час] | Настраиваемый
-uint8_t night_long = 2;               // Длительность фазы ночи [час] | Настраиваемый
+#define all_day_clock 86400           // Длительность суток [сек] | Системный
+uint32_t day_long = 64800;            // Длительность фазы дня [сек] | Настраиваемый
+uint32_t day_switch_long = 3600;      // Длительность смены дня и ночи [сек] | Настраиваемый
 uint8_t day_night_lvl = 0;            // Управляющий уровень режимом дня и ночи (0 => 0%; 255 => 100%) | Системный
+
 
 
 
@@ -293,6 +300,7 @@ bool menu_update = true;              // Переменная обновлени
 #define Menu_Exp_Stop 6               // Номер экрана "Остановка эксперимента" | Системный
 #define Menu_Exp_1 7                  // Номер экрана "Эксперимент 1" | Системный
 #define Menu_Exp_2 8                  // Номер экрана "Эксперимент 2" | Системный
+#define Menu_Exp_3 9                  // Номер экрана "Эксперимент 3" | Системный
 
 
 
@@ -503,73 +511,79 @@ bool pcf_click(int pin)
   }
 }
 
-// Функция вывода "0" перед малым числом
-void zeroWrite(int num)
-{
-  if (num < 10)
-  {
-    lcd1.print("0");
-  }
-}
-
-// Пересчёт влажности с учётом температуры (мнимая влажность)
-uint16_t imaginaryHum(uint16_t hum, float T)
-{
-  return (float)hum * (1 + hum_beta * (T - T_hum_ref));
-}
-
 // Фиксация эталонной влажности почвы
 void humSet()
 {
-  float T = 25;
-  DS18.requestTemp();
-  delay(mux_delay_def);
+  uint8_t SH_pin_curr = 255;
+  uint16_t meas = 0;
+  for (uint8_t i = 0; i < 4; i++)
+  {
+    switch (i)
+    {
+      case 0:
+        SH_pin_curr = pin_SH1;
+        break;
+      case 1:
+        SH_pin_curr = pin_SH2;
+        break;
+      case 2:
+        SH_pin_curr = pin_SH3;
+        break;
+      case 3:
+        SH_pin_curr = pin_SH4;
+        break;
+    }
 
-  // Влажность почвы №1
-  DS18.readTemp(0);
-  T = DS18.getTemp();
-  mux.channel(pin_SH1);
-  DS18.requestTemp();
-  delay(mux_delay_def);
-  hum_set_1 = imaginaryHum(analogRead(pin_mux), T);
-  hum_pot_1 = hum_set_1;
+    mux.channel(SH_pin_curr);
+    delay(mux_delay_def);
+    meas = analogRead(pin_mux);
 
-  // Влажность почвы №2
-  DS18.readTemp(1);
-  T = DS18.getTemp();
-  mux.channel(pin_SH2);
-  DS18.requestTemp();
-  delay(mux_delay_def);
-  hum_set_2 = imaginaryHum(analogRead(pin_mux), T);
-  hum_pot_2 = hum_set_2;
-
-  // Влажность почвы №3
-  DS18.readTemp(2);
-  T = DS18.getTemp();
-  mux.channel(pin_SH3);
-  DS18.requestTemp();
-  delay(mux_delay_def);
-  hum_set_3 = imaginaryHum(analogRead(pin_mux), T);
-  hum_pot_3 = hum_set_3;
-  
-  // Влажность почвы №4
-  DS18.readTemp(3);
-  T = DS18.getTemp();
-  mux.channel(pin_SH4);
-  DS18.requestTemp();
-  delay(mux_delay_def);
-  hum_set_4 = imaginaryHum(analogRead(pin_mux), T);
-  hum_pot_4 = hum_set_4;
+    switch (i)
+    {
+      case 0:
+        hum_set_1 = meas;
+        hum_pot_1 = hum_set_1;
+        break;
+      case 1:
+        hum_set_2 = meas;
+        hum_pot_2 = hum_set_2;
+        break;
+      case 2:
+        hum_set_3 = meas;
+        hum_pot_3 = hum_set_3;
+        break;
+      case 3:
+        hum_set_4 = meas;
+        hum_pot_4 = hum_set_4;
+        break;
+    }
+    
+  }     
+  if (hum_set_all != 0)
+  {
+    hum_set_1 = hum_set_all;
+    hum_set_2 = hum_set_all;
+    hum_set_3 = hum_set_all;
+    hum_set_4 = hum_set_all;
+  }
 }
 
 // Статический класс функций SD карты
 namespace sdFunc {
 
   // Функция чтения строки из файла SD-карты
-  //String readLine(const char* filename, uint32_t lineNumber)
-  String readLine(String filename, uint8_t id, uint32_t lineNumber)
+  String readLine(String filename, uint8_t file_type, uint8_t id, uint32_t lineNumber)
   {
-    filename = filename + id;
+    switch (file_type)
+    {
+      case sys_type:
+        filename = filename + id;
+        break;
+      case cfg_type:
+        filename = filename + id + ".cfg";
+        break;
+    }
+    
     // Отработка ошибок
     if (lineNumber == 0 || !SD.exists(filename))
     {
@@ -588,11 +602,13 @@ namespace sdFunc {
       line = f.readStringUntil('\n');
 
       // удаляем возможный '\r' в конце (Windows EOL)
-      if (line.endsWith("\r")) {
+      if (line.endsWith("\r"))
+      {
         line.remove(line.length() - 1);
       }
 
-      if (current == lineNumber) {
+      if (current == lineNumber)
+      {
         f.close();
         return line;                      // найденная строка
       }
@@ -646,7 +662,7 @@ namespace sdFunc {
       /* 
         experiment_long 
         day_long 
-        night_long 
+        day_switch_long 
         log_period 
         temp_air_set_day 
         temp_air_set_night 
@@ -665,7 +681,7 @@ namespace sdFunc {
       */
       for (uint8_t param_i = 1; param_i <= 18; param_i++)
       {
-        Logfile.print(sdFunc::readLine(headers_folder, 1, param_i));
+        Logfile.print(sdFunc::readLine(sys_folder, sys_type, file_header_1, param_i));
       }
       Logfile.println();                        // Запись на карту переноса "\n"
 
@@ -682,9 +698,9 @@ namespace sdFunc {
           case 2:
             Logfile.print(day_long);
             break;
-          // Запись длительности режима Ночи - night_long
+          // Запись длительности режима Ночи - day_switch_long
           case 3:
-            Logfile.print(night_long);
+            Logfile.print(day_switch_long);
             break;
           // Запись переодичности записи log-данных - log_period
           case 4:
@@ -761,7 +777,6 @@ namespace sdFunc {
         temp_air_set 
         temp_soil_set 
         light_set 
-        water_lvl 
         hum_pot_1 
         hum_pot_2 
         hum_pot_3 
@@ -770,7 +785,7 @@ namespace sdFunc {
 
       for (uint8_t param_i = 1; param_i <= 13; param_i++)
       {
-        Logfile.print(sdFunc::readLine(headers_folder, 2, param_i));
+        Logfile.print(sdFunc::readLine(sys_folder, sys_type, file_header_2, param_i));
       }
       Logfile.println();                        // Запись на карту переноса "\n"
       Logfile.close();                          // Закрытие файла
@@ -825,24 +840,20 @@ namespace sdFunc {
           case 8:
             logFile.print(light_set);
             break;
-          // Запись значения наличия воды в баке - water_lvl
-          case 9:
-            logFile.print(water_lvl);
-            break;
           // Запись текущей влажности SH1
-          case 10:
+          case 9:
             logFile.print(hum_pot_1);
             break;
           // Запись текущей влажности SH2
-          case 11:
+          case 10:
             logFile.print(hum_pot_2);
             break;
           // Запись текущей влажности SH3
-          case 12:
+          case 11:
             logFile.print(hum_pot_3);
             break;
           // Запись текущей влажности SH4
-          case 13:
+          case 12:
             logFile.print(hum_pot_4);
             break;
         }
@@ -854,69 +865,34 @@ namespace sdFunc {
     }
   }
 
-  // Функция записи данных из cfg файлов в переменные
-  bool cfgRead(String cfg_path)
+  // Функция чтения данных из cfg файлов в переменные
+  void cfgRead(uint8_t cfg_num)
   {
-    SD.begin(pin_CS);                         // Инициализация SD карты
-    delay(sd_delay);                          // Ожидание инициализации
-    File cfgFile;                             // Инициализация файла
-    cfgFile = SD.open(cfg_path);              // Открытие файла cfg
-    
-    // Если файл не открывается
-    if (!cfgFile)
+    for (uint8_t line_i = 1; line_i <= 15; line_i++)
     {
-      return false;
-    }
-
-    uint8_t param_i = 0;                // Переменная перечисления параметров из cfg
-    const uint8_t param_i_last = 13;    // Переменная номера последнего параметра из cfg
-    uint8_t write_state = 0;            // Переменная состояния записи:
-                                        // 0 - Запись не началась
-                                        // 1 - Запись началась (записал первое значение)
-                                        // 2 - Запись закончилось (записал последнее занчение)
-    String line;                        // Переменная записи строки данных из cfg
-
-    // Цикл пока имеются данные в файле И не заполнены все индексы
-    while (cfgFile.available() && param_i <= param_i_last)
-    {
-      line = cfgFile.readStringUntil('\n');           // Прочитать строку до переноса
-      line.trim();                                    // Удаление системных символов
-
-      // Если строка пустая или начинается с комментария "#"
-      if (line.length() == 0 || line.startsWith("#"))
-      {}
-      else
+      String line = sdFunc::readLine("", cfg_type, cfg_num, line_i);
+      
+      // Встатвка значений по индексу
+      switch (line_i)
       {
-        // Встатвка значений по индексу
-        switch (param_i)
-        {
-          case 0: experiment_long = line.toInt(); write_state = 1; break;
-          case 1: day_long = line.toInt(); break;
-          case 2: night_long = line.toInt(); break;
-          case 3: log_period = line.toInt(); break;
-          case 4: temp_air_set_day = atof(line.c_str()); break;
-          case 5: temp_air_set_night = atof(line.c_str()); break;
-          case 6: temp_soil_set_day = atof(line.c_str()); break;
-          case 7: temp_soil_set_night = atof(line.c_str()); break;
-          case 8: light_s_W = line.toInt(); break;
-          case 9: light_s_R = line.toInt(); break;
-          case 10: light_s_G = line.toInt(); break;
-          case 11: light_s_B = line.toInt(); break;
-          case 12: light_day = line.toInt(); break;
-          case param_i_last: light_night = line.toInt(); write_state = 2; break;
-        }
-        param_i++; 
+        case 1: experiment_long = line.toInt(); break;
+        case 2: day_long = line.toInt(); break;
+        case 3: day_switch_long = line.toInt(); break;
+        case 4: log_period = line.toInt(); break;
+        case 5: temp_air_set_day = atof(line.c_str()); break;
+        case 6: temp_air_set_night = atof(line.c_str()); break;
+        case 7: temp_soil_set_day = atof(line.c_str()); break;
+        case 8: temp_soil_set_night = atof(line.c_str()); break;
+        case 9: light_s_W = line.toInt(); break;
+        case 10: light_s_R = line.toInt(); break;
+        case 11: light_s_G = line.toInt(); break;
+        case 12: light_s_B = line.toInt(); break;
+        case 13: light_day = line.toInt(); break;
+        case 14: light_night = line.toInt(); break;
+        case 15: hum_set_all = line.toInt(); break;
       }
     }
-    cfgFile.close();
-    if (write_state == 2)
-    {
-      return true;
-    }
-    else
-    {
-      return false;
-    }
+    delay(sd_delay);
   }
 }
 
@@ -996,37 +972,47 @@ namespace menuFunc {
     for (int line_i = 1; line_i <= 4; line_i++)
     {
       lcd1.setCursor(0, line_i - 1);
-      lcd1.print(sdFunc::readLine(menu_folder, screen_id, line_i));
+      lcd1.print(sdFunc::readLine(sys_folder, sys_type, screen_id, line_i));
+    }
+  }
+
+  // Функция мониторинга показателей
+  void monitor_clear()
+  {
+    for (uint8_t line_i = 0; line_i <= 2; line_i++)
+    {
+      // Очищение предыдущих значений
+      lcd1.setCursor(12, line_i);
+      for (uint8_t i = 1; i <= 6; i++)
+      {
+        lcd1.print(" ");
+      }
     }
   }
 
   // Функция циклов меню
   void Loop()
   {
-    // Экран №0 - Стартовое меню (Menu_Start)
-    if (work_sreen_id == Menu_Start)
+    switch (work_sreen_id)
     {
-      // Управление на экране
-      if (btn_flag_Right)
-      {
-        menuFunc::switchTo(Menu_cfg);
-        lcd1.setCursor(4, 2);
-        lcd1.print(cfgID);
-        btnFunc::flagDrop();
-      }
-    }
-    
-    // Экран №1 - Меню выбора cfg (Menu_cfg)
-    if (work_sreen_id == Menu_cfg)
-    {
-      // Управление на экране
-      if (btn_flag_Right)
-      {
-        humSet();                       // Фиксация эталонной влажности в почве
-        // Чтение параметров из cfg
-        String cfg_path_current = "/" + String(cfgID) + ".cfg";
-        if (sdFunc::cfgRead(cfg_path_current))
+      // Экран №0 - Стартовое меню (Menu_Start)
+      case Menu_Start:
+        // Управление на экране
+        if (btn_flag_Right)
         {
+          menuFunc::switchTo(Menu_cfg);
+          lcd1.setCursor(4, 2);
+          lcd1.print(cfgID);
+        }
+        break;
+      
+      // Экран №1 - Меню выбора cfg (Menu_cfg)
+      case Menu_cfg:
+        // Управление на экране
+        if (btn_flag_Right)
+        {
+          sdFunc::cfgRead(cfgID);       // Чтение параметров из cfg
+          humSet();                     // Фиксация эталонной влажности в почве
           // Создание log файла
           if(sdFunc::LogCreate())
           {
@@ -1039,171 +1025,205 @@ namespace menuFunc {
             menuFunc::switchTo(Menu_Log_err);
           }
         }
-        else
+        if (btn_flag_Left)
         {
-          menuFunc::switchTo(Menu_cfg_err);
+          menuFunc::switchTo(Menu_Start);
         }
-        btnFunc::flagDrop();
-      }
-      if (btn_flag_Left)
-      {
-        menuFunc::switchTo(Menu_Start);
-        btnFunc::flagDrop();
-      }
-      if (btn_flag_Up)
-      {
-        cfgID = cfgID + 1;
-        lcd1.setCursor(4, 2);
-        lcd1.print("   ");
-        lcd1.setCursor(4, 2);
-        lcd1.print(cfgID);
-        btnFunc::flagDrop();
-      }
-      if (btn_flag_Down)
-      {
-        cfgID = cfgID - 1;
-        lcd1.setCursor(4, 2);
-        lcd1.print("   ");
-        lcd1.setCursor(4, 2);
-        lcd1.print(cfgID);
-        btnFunc::flagDrop();
-      }
-    }
-    
-    // Экран №2 - Ошибка cfg-файла (Menu_cfg_err)
-    if (work_sreen_id == Menu_cfg_err)
-    {
-      // Управление на экране
-      if (btn_flag_Left)
-      {
-        menuFunc::switchTo(Menu_Start);
-        btnFunc::flagDrop();
-      }
-    }
+        if (btn_flag_Up || btn_flag_Down)
+        {
+          if (btn_flag_Up)
+          {
+            cfgID = cfgID + 1;
+          }
+          else if (btn_flag_Down)
+          {
+            cfgID = cfgID - 1;
+          }
+          lcd1.setCursor(4, 2);
+          lcd1.print("   ");
+          lcd1.setCursor(4, 2);
+          lcd1.print(cfgID);
+        }
+        break;
+      /*
+      // Экран №2 - Ошибка cfg-файла (Menu_cfg_err)
+      case Menu_cfg_err:
+        // Управление на экране
+        if (btn_flag_Left)
+        {
+          menuFunc::switchTo(Menu_Start);
+        }
+        break;
+      */
+      // Экран №3 - Создание log-файла (Menu_Log)
+      case Menu_Log:
+         // Управление на экране
+        if (btn_flag_Right)
+        {
+          menuFunc::switchTo(Menu_Exp_1);
+          experiment_inWork = true;                     // Включение экспермента
+          time_exp_start = rtc.getUnix(rtc_region);     // Фиксация времени начала эксперимента
+          time_exp_count = 0;                           // Обнуление таймера эксперимента
+        }
+        if (btn_flag_Left)
+        {
+          menuFunc::switchTo(Menu_Start);
+        }
+        break;
 
-    // Экран №3 - Создание log-файла (Menu_Log)
-    if (work_sreen_id == Menu_Log)
-    {
-      // Управление на экране
-      if (btn_flag_Right)
-      {
-        menuFunc::switchTo(Menu_Exp_1);
-        btnFunc::flagDrop();
-        menu_update = true;
-        experiment_inWork = true;                     // Включение экспермента
-        time_exp_start = rtc.getUnix(rtc_region);     // Фиксация времени начала эксперимента
-        time_exp_count = 0;                           // Обнуление таймера эксперимента
-      }
-      if (btn_flag_Left)
-      {
-        menuFunc::switchTo(Menu_Start);
-        btnFunc::flagDrop();
-      }
-    }
-  
-    // Экран №4 - Ошибка log-файла (Menu_Log_err)
-    if (work_sreen_id == Menu_Log_err)
-    {
-      // Управление на экране
-      if (btn_flag_Left)
-      {
-        menuFunc::switchTo(Menu_Start);
-        btnFunc::flagDrop();
-      }
-    }
-
-    // Экран №5 - Эксперимент выполнен (Menu_Exp_Done)
-    if (work_sreen_id == Menu_Exp_Done)
-    {
-      // Управление на экране
-      if (btn_flag_Right)
-      {
-        menuFunc::switchTo(Menu_Start);
-        btnFunc::flagDrop();
-      }
-    }
-
-    // Экран №6 - Остановка эксперимента (Menu_Exp_Stop)
-    if (work_sreen_id == Menu_Exp_Stop)
-    {
-      // Управление на экране
-      if (btn_flag_Right)
-      {
-        menuFunc::switchTo(Menu_Start);
-        btnFunc::flagDrop();
-        experiment_inWork = false;             // Выключение экспермента
-      }
-      if (btn_flag_Left)
-      {
-        menuFunc::switchTo(Menu_Exp_1);
-        btnFunc::flagDrop();
-        menu_update = true;
-      }
-    }
-
-    // Экран №7 - Эксперимент 1 (Menu_Exp_1)
-    if (work_sreen_id == Menu_Exp_1)
-    {
-      // Динамичные элементы
-      if (menu_update == true)
-      {
-        menu_update = false;
-        lcd1.setCursor(10, 0);
-        lcd1.print(experiment_long);
-        lcd1.setCursor(10, 1);
-        uint32_t time_curr = (float)time_exp_count / 60.0f;
-        lcd1.print(time_curr);
-        lcd1.setCursor(10, 2);
-        uint8_t process = 100 * (time_exp_count / (experiment_long * 60.0f));
-        zeroWrite(process);
-        lcd1.print(process);
-      }
-
-      // Управление на экране
-      if (btn_flag_Left)
-      {
-        menuFunc::switchTo(Menu_Exp_Stop);
-        btnFunc::flagDrop();
-      }
-      if (btn_flag_Up || btn_flag_Down)
-      {
-        menuFunc::switchTo(Menu_Exp_2);
-        btnFunc::flagDrop();
-        menu_update = true;
-      }
-    }
-
-    // Экран №8 - Эксперимент 2 (Menu_Exp_2)
-    if (work_sreen_id == Menu_Exp_2)
-    {
-      // Динамичные элементы
-      if (menu_update == true)
-      {
-        menu_update = false;
-        lcd1.setCursor(11, 0);
-        zeroWrite(air_out_temp_current);
-        lcd1.print(air_out_temp_current);
-        lcd1.setCursor(11, 1);
-        zeroWrite(air_temp_current);
-        lcd1.print(air_temp_current);
-        lcd1.setCursor(11, 2);
-        zeroWrite(soil_temp_current_avr);
-        lcd1.print(soil_temp_current_avr);
-      }
+      // Экран №4 - Ошибка log-файла (Menu_Log_err)
+      case Menu_Log_err:
+        // Управление на экране
+        if (btn_flag_Left)
+        {
+          menuFunc::switchTo(Menu_Start);
+        }
+        break;
       
-      // Управление на экране
-      if (btn_flag_Left)
-      {
-        menuFunc::switchTo(Menu_Exp_Stop);
-        btnFunc::flagDrop();
-      }
-      if (btn_flag_Up || btn_flag_Down)
-      {
-        menuFunc::switchTo(Menu_Exp_1);
-        btnFunc::flagDrop();
-        menu_update = true;
-      }
-    }    
+      // Экран №5 - Эксперимент выполнен (Menu_Exp_Done)
+      case Menu_Exp_Done:
+        // Управление на экране
+        if (btn_flag_Right)
+        {
+          menuFunc::switchTo(Menu_Start);
+        }
+        break;
+      
+      // Экран №6 - Остановка эксперимента (Menu_Exp_Stop)
+      case Menu_Exp_Stop:
+        // Управление на экране
+        if (btn_flag_Right)
+        {
+          menuFunc::switchTo(Menu_Start);
+          experiment_inWork = false;             // Выключение экспермента
+        }
+        if (btn_flag_Left)
+        {
+          menuFunc::switchTo(Menu_Exp_1);
+        }
+        break;
+      
+      // Экран №7 - Эксперимент 1 (Menu_Exp_1)
+      case Menu_Exp_1:
+        // Динамичные элементы
+        if (menu_update == true)
+        {
+          menu_update = false;
+          uint32_t time_curr = (float)time_exp_count / 60.0f;
+          uint8_t process = 100 * ((float)time_exp_count / (experiment_long * 60.0f));
+          monitor_clear();
+          for (uint8_t line_i = 0; line_i <= 2; line_i++)
+          {
+            lcd1.setCursor(12, line_i);
+            switch (line_i)
+            {
+              case 0:
+                lcd1.print(experiment_long);
+                break;
+              case 1:
+                lcd1.print(time_curr);
+                break;
+              case 2:
+                lcd1.print(process);
+                break;
+            }
+          }
+        }
+
+        // Управление на экране
+        if (btn_flag_Left)
+        {
+          menuFunc::switchTo(Menu_Exp_Stop);
+        }
+        if (btn_flag_Up)
+        {
+          menuFunc::switchTo(Menu_Exp_3);
+        }
+        if (btn_flag_Down)
+        {
+          menuFunc::switchTo(Menu_Exp_2);
+        }
+        break;
+      
+      // Экран №8 - Эксперимент 2 (Menu_Exp_2)
+      case Menu_Exp_2:
+        // Динамичные элементы
+        if (menu_update == true)
+        {
+          menu_update = false;
+          monitor_clear();
+          for (uint8_t line_i = 0; line_i <= 2; line_i++)
+          {
+            lcd1.setCursor(12, line_i);
+            switch (line_i)
+            {
+              case 0:
+                lcd1.print(air_temp_current);
+                break;
+              case 1:
+                lcd1.print(soil_temp_current_avr);
+                break;
+              case 2:
+                lcd1.print(air_out_temp_current);
+                break;
+            }
+          }
+        }
+        // Управление на экране
+        if (btn_flag_Left)
+        {
+          menuFunc::switchTo(Menu_Exp_Stop);
+        }
+        if (btn_flag_Up)
+        {
+          menuFunc::switchTo(Menu_Exp_1);
+        }
+        if (btn_flag_Down)
+        {
+          menuFunc::switchTo(Menu_Exp_3);
+        }
+        break;
+      
+      // Экран №9 - Эксперимент 3 (Menu_Exp_3)
+      case Menu_Exp_3:
+        // Динамичные элементы
+        if (menu_update == true)
+        {
+          menu_update = false;
+          uint8_t DayNight_status = 100 * (float)day_night_lvl/255;
+          monitor_clear();
+          for (uint8_t line_i = 0; line_i <= 2; line_i++)
+          {
+            lcd1.setCursor(12, line_i);
+            switch (line_i)
+            {
+              case 0:
+                lcd1.print(temp_air_set);
+                break;
+              case 1:
+                lcd1.print(temp_soil_set);
+                break;
+              case 2:
+                lcd1.print(DayNight_status);
+                break;
+            }
+          }
+        }
+        // Управление на экране
+        if (btn_flag_Left)
+        {
+          menuFunc::switchTo(Menu_Exp_Stop);
+        }
+        if (btn_flag_Up)
+        {
+          menuFunc::switchTo(Menu_Exp_2);
+        }
+        if (btn_flag_Down)
+        {
+          menuFunc::switchTo(Menu_Exp_1);
+        }
+        break;
+    }
   }
 }
 
@@ -1219,34 +1239,35 @@ namespace expFunc {
   // Расчёт управляющего уровня режима дня и ночи
   void DayNight(uint32_t time_curr)
   {
-    uint32_t all_day_clock = 24UL * 3600;                                 // Длительность суток (сек)
-    uint32_t switch_long = ((24 - (day_long + night_long)) / 2) * 3600;   // Длительность перехода День / Ночь (сек)
-    uint8_t morn_clock = 0;                                               // Значение часов (24 формат) начала утра (сек)
-    uint32_t day_clock = switch_long;                                     // Значение часов (24 формат) начала дня (сек)
-    uint32_t evening_clock = day_clock + day_long * 3600;                 // Значение часов (24 формат) начала вечера (сек)
-    uint32_t night_clock = evening_clock + switch_long;                   // Значение часов (24 формат) начала ночи (сек)
+    uint32_t day_clock = day_switch_long;                             // Значение часов (24 формат) начала дня (сек)
+    uint32_t evening_clock = day_clock + day_long;                    // Значение часов (24 формат) начала вечера (сек)
+    uint32_t night_clock = evening_clock + day_switch_long;           // Значение часов (24 формат) начала ночи (сек)
 
-    uint32_t time_clock = time_curr % (all_day_clock);                    // Значение часов (24 формат) в данный момент (сек)
+    uint32_t time_clock = time_curr % (all_day_clock);                // Значение часов (24 формат) в данный момент (сек)
 
     // Фаза утра
-    if (morn_clock <= time_clock && time_clock < day_clock)
+    if (time_clock < day_clock)
     {
-      day_night_lvl = 255 * ((float)time_clock / (float)switch_long);
+      day_night_lvl = 255 * ((float)time_clock / (float)day_switch_long);
     }
     // Фаза дня
-    if (day_clock <= time_clock && time_clock < evening_clock)
+    else if (time_clock < evening_clock)
     {
       day_night_lvl = 255;
     }
     // Фаза вечера
-    if (evening_clock <= time_clock && time_clock < night_clock)
+    else if (time_clock < night_clock)
     {
-      day_night_lvl = 255 * (1 - ((float)time_clock - (float)evening_clock) / (float)switch_long);
+      day_night_lvl = 255 * (1 - ((float)time_clock - (float)evening_clock) / (float)day_switch_long);
     }
     // Фаза ночи
-    if (night_clock <= time_clock && time_clock <= all_day_clock)
+    else if (time_clock < all_day_clock)
     {
       day_night_lvl = 0;
+    }
+    else
+    {
+      day_night_lvl = 255;
     }
     
     light_set = (float)light_night + (float)day_night_lvl/255 * ((float)light_day - (float)light_night);
@@ -1263,6 +1284,7 @@ namespace expFunc {
     for (int i = 0; i < 4; i++)
     {
       uint8_t sig = light_s[i];
+
       sig = (float)signal_all * (float)sig / 100.0f;
       analogWrite(pins[i], sig);
     }
@@ -1273,74 +1295,104 @@ namespace expFunc {
   {
     if (time_exp_count - timer_humMeas >= timer_humMeas_period)
     {
-      uint8_t SH_pin = 255;
-      uint8_t pump_pin = 255;
-      uint16_t hum_set = 0;
-      switch (pot_num)
-      {
-        case 0:
-          SH_pin = pin_SH1;
-          pump_pin = pin_P1;
-          hum_set = hum_set_1;
-          break;
-        case 1:
-          SH_pin = pin_SH2;
-          pump_pin = pin_P2;
-          hum_set = hum_set_2;
-          break;
-        case 2:
-          SH_pin = pin_SH3;
-          pump_pin = pin_P3;
-          hum_set = hum_set_3;
-          break;
-        case 3:
-          SH_pin = pin_SH4;
-          pump_pin = pin_P4;
-          hum_set = hum_set_4;
-          break;
-      }
       if (humMeas_switch == true)
       {
-        mux.channel(SH_pin);                      // Устанавливаем мультиплексор на канал датчика влажности
-        delay(mux_delay_def);
-        hum_curr = analogRead(pin_mux);           // Измерение влажности
-        // Пересчёт влажности с учётом температуры
-        hum_curr = imaginaryHum(hum_curr, soil_temp_current_avr);        
-        mux.channel(pin_SL1);                     // Устанавливаем мультиплексор на канал датчика уровня воды
-        water_lvl = digitalRead(pin_mux);
-        switch (pot_num)
-        {
-          case 0:
-            hum_pot_1 = hum_curr;
-            break;
-          case 1:
-            hum_pot_2 = hum_curr;
-            break;
-          case 2:
-            hum_pot_3 = hum_curr;
-            break;
-          case 3:
-            hum_pot_4 = hum_curr;
-            break;
-        }
         humMeas_switch = false;
+
+        // Измерение влажности горшка №1
+        mux.channel(pin_SH1);
+        delay(mux_delay_def);
+        hum_pot_1 = analogRead(pin_mux);
+
+        // Измерение влажности горшка №2
+        mux.channel(pin_SH2);
+        delay(mux_delay_def);
+        hum_pot_2 = analogRead(pin_mux);
+
+        // Измерение влажности горшка №3
+        mux.channel(pin_SH3);
+        delay(mux_delay_def);
+        hum_pot_3 = analogRead(pin_mux);
+
+        // Измерение влажности горшка №4
+        mux.channel(pin_SH4);
+        delay(mux_delay_def);
+        hum_pot_4 = analogRead(pin_mux);
+
+        // Измерение уровня воды в баке
+        mux.channel(pin_SL1);
+        delay(mux_delay_def);
+        water_lvl = digitalRead(pin_mux);
+
+        pot_num = 1;
         timer_pump = millis();
-      }
-      if (millis() - timer_pump <= timer_pump_period && hum_curr > hum_set && water_lvl)
-      {
-        pcf1.write(pump_pin, !true);
       }
       else
       {
-        pcf1.write(pump_pin, !false);
-        pot_num = pot_num + 1;
-        humMeas_switch = true;
+        switch (pot_num)
+        {
+          case 1:
+            hum_curr = hum_pot_1;
+            hum_set_curr = hum_set_1;
+            break;
+          case 2:
+            hum_curr = hum_pot_2;
+            hum_set_curr = hum_set_2;
+            break;
+          case 3:
+            hum_curr = hum_pot_3;
+            hum_set_curr = hum_set_3;
+            break;
+          case 4:
+            hum_curr = hum_pot_4;
+            hum_set_curr = hum_set_4;
+            break;
+        }
+        
+        if (millis() - timer_pump <= timer_pump_period 
+            && 
+            hum_curr > hum_set_curr + hum_set_delta
+            && 
+            water_lvl)
+        {
+          switch (pot_num)
+          {
+            case 1:
+              pcf1.write(pin_P1, !true);
+              break;
+            case 2:
+              pcf1.write(pin_P2, !true);
+              break;
+            case 3:
+              pcf1.write(pin_P3, !true);
+              break;
+            case 4:
+              pcf1.write(pin_P4, !true);
+              break;
+          }
+        }
+        else
+        {
+          pcf1.write(pin_P1, !false);
+          pcf1.write(pin_P2, !false);
+          pcf1.write(pin_P3, !false);
+          pcf1.write(pin_P4, !false);
+          pot_num = pot_num + 1;
+          timer_pump = millis();
+        }
+        if (pot_num > 4)
+        {
+          timer_humMeas = time_exp_count;
+          humMeas_switch = true;
+        }
       }
-      if (pot_num >= 4)
-      {
-        pot_num = 0;
-        timer_humMeas = time_exp_count;
-      }
+    }
+    else
+    {
+      pcf1.write(pin_P1, !false);
+      pcf1.write(pin_P2, !false);
+      pcf1.write(pin_P3, !false);
+      pcf1.write(pin_P4, !false);
     }
   }
 

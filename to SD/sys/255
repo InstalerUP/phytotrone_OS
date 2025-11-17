@@ -1,6 +1,6 @@
 experiment_long 
 day_long 
-night_long 
+day_switch_long 
 log_period 
 temp_air_set_day 
 temp_air_set_night 
