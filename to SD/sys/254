@@ -6,7 +6,6 @@ soil_temp_current_avr
 temp_air_set 
 temp_soil_set 
 light_set 
-water_lvl 
 hum_pot_1 
 hum_pot_2 
 hum_pot_3 
