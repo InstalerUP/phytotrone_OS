@@ -875,20 +875,20 @@ namespace sdFunc {
       // Встатвка значений по индексу
       switch (line_i)
       {
-        case 1: experiment_long = line.toInt(); break;
-        case 2: day_long = line.toInt(); break;
-        case 3: day_switch_long = line.toInt(); break;
-        case 4: log_period = line.toInt(); break;
+        case 1: log_period = line.toInt(); break;
+        case 2: experiment_long = line.toInt(); break;
+        case 3: day_long = line.toInt(); break;
+        case 4: day_switch_long = line.toInt(); break;
         case 5: temp_air_set_day = atof(line.c_str()); break;
-        case 6: temp_air_set_night = atof(line.c_str()); break;
-        case 7: temp_soil_set_day = atof(line.c_str()); break;
-        case 8: temp_soil_set_night = atof(line.c_str()); break;
-        case 9: light_s_W = line.toInt(); break;
-        case 10: light_s_R = line.toInt(); break;
-        case 11: light_s_G = line.toInt(); break;
-        case 12: light_s_B = line.toInt(); break;
-        case 13: light_day = line.toInt(); break;
-        case 14: light_night = line.toInt(); break;
+        case 6: temp_soil_set_day = atof(line.c_str()); break;
+        case 7: light_day = line.toInt(); break;
+        case 8: temp_air_set_night = atof(line.c_str()); break;
+        case 9: temp_soil_set_night = atof(line.c_str()); break;
+        case 10: light_night = line.toInt(); break;
+        case 11: light_s_W = line.toInt(); break;
+        case 12: light_s_R = line.toInt(); break;
+        case 13: light_s_G = line.toInt(); break;
+        case 14: light_s_B = line.toInt(); break;
         case 15: hum_set_all = line.toInt(); break;
       }
     }
